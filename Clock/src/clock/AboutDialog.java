@@ -115,6 +115,10 @@ public final class AboutDialog {
         dialog.setSize(w, h);
         dialog.setLocationRelativeTo(owner);
 
+        dialog.setSize(w, h);
+        UiKit.prepareUndecorated(dialog);
+        UiKit.disableShape(dialog);
+
         // 不做出现动画，直接按最终大小显示
         UiKit.applyDialogShape(dialog, dialog.getBounds());
 

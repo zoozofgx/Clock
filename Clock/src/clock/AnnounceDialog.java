@@ -49,17 +49,58 @@ public final class AnnounceDialog {
         title.setBounds(20, 12, 200, 24);
         panel.add(title);
 
-        // 第一行就是公告常量，后面要加内容直接改 ANNOUNCEMENT
-        JTextArea body = new JTextArea(ANNOUNCEMENT);
+        // 公告用 HTML 渲染，这样文字可以带颜色：
+        //   <color=#FFD24A>要变色的文字</color>
+        JEditorPane body = new JEditorPane();
+        body.setContentType("text/html");
         body.setEditable(false);
         body.setOpaque(false);
-        body.setForeground(new Color(215, 220, 230));
-        body.setFont(new Font("微软雅黑", Font.PLAIN, 13));
-        body.setLineWrap(true);
-        body.setWrapStyleWord(true);
-        body.setBorder(null);
-        body.setBounds(22, 62, w - 44, h - 62 - 64);
-        panel.add(body);
+        body.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 8));
+        body.setText(toHtml(ANNOUNCEMENT));
+        // 公告可能很长：放进滚动面板，可以上下滑
+        JScrollPane scroll = new JScrollPane(body);
+        scroll.setBounds(22, 62, w - 44, h - 62 - 64);
+        scroll.setBorder(null);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+
+        JScrollBar bar = scroll.getVerticalScrollBar();
+        bar.setPreferredSize(new Dimension(10, 0));
+        bar.setBackground(new Color(45, 45, 48));
+        bar.setUI(new javax.swing.plaf.basic.BasicScrollBarUI() {
+            @Override
+            protected void configureScrollBarColors() {
+                thumbColor = new Color(115, 115, 126);
+                trackColor = new Color(45, 45, 48);
+            }
+
+            @Override
+            protected JButton createDecreaseButton(int orientation) {
+                return zeroButton();
+            }
+
+            @Override
+            protected JButton createIncreaseButton(int orientation) {
+                return zeroButton();
+            }
+
+            private JButton zeroButton() {
+                JButton b = new JButton();
+                b.setPreferredSize(new Dimension(0, 0));
+                b.setMinimumSize(new Dimension(0, 0));
+                b.setMaximumSize(new Dimension(0, 0));
+                return b;
+            }
+        });
+        bar.setUnitIncrement(18);
+
+        // 滚轮平滑滚动：像倒计时列表那样"追"过去，而不是一格一跳
+        scroll.setWheelScrollingEnabled(false);
+        scroll.addMouseWheelListener(e -> smoothScroll(bar, e.getWheelRotation() * 64));
+
+        panel.add(scroll);
 
         JButton closeBtn = UiKit.createDialogButton("关闭", new Color(200, 200, 205));
         closeBtn.setBounds(w - 18 - 72, h - 16 - 28, 72, 28);
@@ -69,6 +110,10 @@ public final class AnnounceDialog {
         dialog.setContentPane(panel);
         dialog.setSize(w, h);
         dialog.setLocationRelativeTo(owner);
+
+        dialog.setSize(w, h);
+        UiKit.prepareUndecorated(dialog);
+        UiKit.disableShape(dialog);
 
         final Rectangle to = dialog.getBounds();
         Rectangle from = to;
@@ -81,6 +126,8 @@ public final class AnnounceDialog {
             }
         }
 
+        dialog.validate();
+
         dialog.setBounds(from);
         UiKit.applyDialogShape(dialog, from);
 
@@ -92,7 +139,54 @@ public final class AnnounceDialog {
         });
 
         owner.showGlassOverlay();
-        owner.startOpenAnimation(dialog, from, to, 100);
+        owner.startOpenAnimation(dialog, from, to, 200);
         dialog.setVisible(true);
+    }
+
+    /**
+     * 把公告文本转成 HTML：
+     * - 换行 -> <br>
+     * - <color=#RRGGBB>文字</color> -> <font color="#RRGGBB">文字</font>
+     */
+    private static String toHtml(String text) {
+        String escaped = text.replace("\n", "<br>")
+                .replace("<color=", "<font color=")
+                .replace("</color>", "</font>");
+        return "<html><body style=\"margin:0; padding:0; color:#D7DCE6; "
+                + "font-family:'微软雅黑'; font-size:12px; line-height:1.6;\">"
+                + escaped + "</body></html>";
+    }
+
+    // ===== 平滑滚动：滚轮每次推进一点，靠定时器逐帧追过去 =====
+    private static javax.swing.Timer scrollAnimation;
+    private static JScrollBar scrollBarRef;
+    private static int scrollTarget;
+
+    private static void smoothScroll(JScrollBar bar, int delta) {
+        scrollBarRef = bar;
+
+        int max = Math.max(0, bar.getMaximum() - bar.getVisibleAmount());
+        int base = (scrollAnimation != null && scrollAnimation.isRunning()) ? scrollTarget : bar.getValue();
+        scrollTarget = Math.max(0, Math.min(base + delta, max));
+
+        if (scrollAnimation == null) {
+            scrollAnimation = new javax.swing.Timer(15, e -> {
+                if (scrollBarRef == null) {
+                    scrollAnimation.stop();
+                    return;
+                }
+                int current = scrollBarRef.getValue();
+                int diff = scrollTarget - current;
+                if (Math.abs(diff) <= 1) {
+                    scrollBarRef.setValue(scrollTarget);
+                    scrollAnimation.stop();
+                    return;
+                }
+                scrollBarRef.setValue(current + (int) Math.round(diff * 0.28));
+            });
+        }
+        if (!scrollAnimation.isRunning()) {
+            scrollAnimation.start();
+        }
     }
 }

@@ -110,6 +110,12 @@ public final class AddDialog {
         dialog.setSize(w, h);
         dialog.setLocationRelativeTo(owner);
 
+        dialog.setSize(w, h);
+        // 这个弹窗里有文本输入框：不能用透明窗口，否则一开输入法就会白屏花屏
+        dialog.getRootPane().putClientProperty("noFade", Boolean.TRUE);
+        dialog.setBackground(new Color(45, 45, 48));
+        dialog.validate();
+
         // 结束位置：居中在窗口上
         final Rectangle to = dialog.getBounds();
 
@@ -124,6 +130,8 @@ public final class AddDialog {
             }
         }
 
+        dialog.validate();
+
         dialog.setBounds(from);
         UiKit.applyDialogShape(dialog, from);
 
@@ -137,9 +145,13 @@ public final class AddDialog {
 
         owner.showGlassOverlay();
 
-        owner.startOpenAnimation(dialog, from, to, 100);
+        owner.startOpenAnimation(dialog, from, to, 200);
 
         dialog.setVisible(true);
+        SwingUtilities.invokeLater(() -> {
+            dialog.toFront();
+            nameField.requestFocusInWindow();
+        });
     }
 
     private static JTextField createNameField() {
@@ -192,6 +204,7 @@ public final class AddDialog {
             }
         };
         field.setOpaque(false);
+        field.enableInputMethods(false);          // 数字框不允许输入法（拼音）
         field.setHorizontalAlignment(JTextField.CENTER);
         field.setFont(new Font("Consolas", Font.PLAIN, 24));
         field.setForeground(new Color(235, 235, 240));
@@ -203,7 +216,19 @@ public final class AddDialog {
         field.addFocusListener(new FocusAdapter() {
             @Override
             public void focusGained(FocusEvent e) {
-                field.selectAll();
+                // 延迟一点再全选，避免和鼠标点击抢光标位置
+                javax.swing.SwingUtilities.invokeLater(field::selectAll);
+            }
+        });
+
+        field.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                // 当前是 0 的时候，点哪儿都算"全选"，这样输入 1 就是 1，而不是变成 10
+                field.requestFocusInWindow();
+                if ("0".equals(field.getText())) {
+                    javax.swing.SwingUtilities.invokeLater(field::selectAll);
+                }
             }
         });
         return field;

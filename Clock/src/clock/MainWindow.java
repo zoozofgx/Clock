@@ -101,7 +101,8 @@ public class MainWindow extends JFrame {
         // 只有系统/显卡支持"逐像素半透明"时才设置全透明背景，
         // 否则在远程桌面、虚拟机、老显卡等环境下会抛 UnsupportedOperationException
         if (supportsTranslucency(GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSLUCENT)) {
-            setBackground(new Color(0, 0, 0, 0));
+            // 用深色不透明底：万一系统在淡出时丢掉圆角区域，露出来的也是深色而不是白底
+            setBackground(new Color(45, 45, 48));
         }
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);   // 退出只能走托盘右键菜单
         addWindowListener(new WindowAdapter() {
@@ -402,41 +403,51 @@ public class MainWindow extends JFrame {
     // 新卡片从 1px 平滑展开到 66px，看起来像"滑进列表"
     private void animateCardIn(final CountdownCard card) {
         final int targetHeight = 66;
-        final int frames = 12;
-        final Timer[] anim = new Timer[1];
-        final int[] frame = { 0 };
+        card.setPreferredSize(new Dimension(100, 1));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 1));
+        card.setAlpha(0f);
 
-        anim[0] = new Timer(16, e -> {
-            frame[0]++;
-            float p = Math.min(1f, frame[0] / (float) frames);
-            float eased = 1 - (1 - p) * (1 - p);          // 先快后慢
-            int h = Math.max(1, Math.round(targetHeight * eased));
-
+        UiKit.animate(240, UiKit.Ease.OUT_QUINT, p -> {
+            int h = Math.max(1, (int) Math.round(targetHeight * p));
             card.setPreferredSize(new Dimension(100, h));
             card.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
+            card.setAlpha((float) Math.min(1, p * 1.5));
             countdownList.revalidate();
             countdownList.repaint();
+        }, () -> {
+            card.setPreferredSize(new Dimension(100, targetHeight));
+            card.setMaximumSize(new Dimension(Integer.MAX_VALUE, targetHeight));
+            card.setAlpha(1f);
+            countdownList.revalidate();
+            countdownList.repaint();
+        });
+    }
 
-            if (frame[0] >= frames) {
-                anim[0].stop();
-                card.setPreferredSize(new Dimension(100, targetHeight));
-                card.setMaximumSize(new Dimension(Integer.MAX_VALUE, targetHeight));
-                countdownList.revalidate();
-                countdownList.repaint();
+    // 卡片移除：先收拢淡出，再从列表里删掉
+    private void animateCardOut(final CountdownCard card) {
+        final int startHeight = Math.max(1, card.getHeight());
+        UiKit.animate(180, UiKit.Ease.IN_CUBIC, p -> {
+            int h = Math.max(1, (int) Math.round(startHeight * (1 - p)));
+            card.setPreferredSize(new Dimension(100, h));
+            card.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
+            card.setAlpha((float) Math.max(0, 1 - p * 1.2));
+            countdownList.revalidate();
+            countdownList.repaint();
+        }, () -> {
+            countdowns.remove(card);
+            refreshCountdownList();
+            SoundPlayer.stop();
+            if (countdowns.isEmpty()) {
+                tickTimer.stop();
             }
         });
-        anim[0].setInitialDelay(0);
-        anim[0].start();
     }
 
     private void removeCountdown(CountdownCard card) {
-        countdowns.remove(card);
-        refreshCountdownList();
-        SoundPlayer.stop();   // 关掉这张卡时，把正在响的提示音也停掉
-
-        if (countdowns.isEmpty()) {
-            tickTimer.stop();
+        if (card == null || !countdowns.contains(card)) {
+            return;
         }
+        animateCardOut(card);
     }
 
     private void refreshCountdownList() {
@@ -600,27 +611,10 @@ public class MainWindow extends JFrame {
             }
             return;
         }
-        final int frames = Math.max(6, durationMs / 16);
-        final int interval = Math.max(10, durationMs / frames);
-        final Timer[] timer = new Timer[1];
-        final int[] frame = { 0 };
-
         setOpacitySafe(from);
-        timer[0] = new Timer(interval, e -> {
-            frame[0]++;
-            float p = Math.min(1f, frame[0] / (float) frames);
-            float eased = 1 - (1 - p) * (1 - p);
-            setOpacitySafe(from + (to - from) * eased);
-            if (frame[0] >= frames) {
-                timer[0].stop();
-                setOpacitySafe(to);
-                if (done != null) {
-                    done.run();
-                }
-            }
-        });
-        timer[0].setInitialDelay(0);
-        timer[0].start();
+        UiKit.animate(durationMs, UiKit.Ease.IN_OUT_CUBIC,
+                p -> setOpacitySafe((float) (from + (to - from) * p)),
+                done);
     }
 
     // 启动时淡入
@@ -635,12 +629,23 @@ public class MainWindow extends JFrame {
         fade(0f, 1f, 220, null);
     }
 
+    // 淡出前把窗口形状去掉：Windows 上"圆角区域 + 透明度"同时存在时，
+    // 系统会按矩形绘制，四角会露出白色底
+    private void clearShapeForFade() {
+        try {
+            setShape(null);
+        } catch (Exception ignored) {
+            // 忽略
+        }
+    }
+
     // 淡出后再退出
     void requestClose() {
         if (closing) {
             return;
         }
         closing = true;
+        clearShapeForFade();
         if (!isShowing()) {   // 窗口已经收进托盘了，不用再淡出，直接退
             quit();
             return;
@@ -650,7 +655,14 @@ public class MainWindow extends JFrame {
 
     // 淡出后收进托盘
     private void hideToTray() {
-        fade(1f, 0f, 140, () -> setVisible(false));
+        clearShapeForFade();
+        fade(1f, 0f, 140, () -> {
+            setVisible(false);
+            // 重新显示时把圆角恢复
+            if (supportsTranslucency(GraphicsDevice.WindowTranslucency.PERPIXEL_TRANSPARENT)) {
+                setShape(new RoundRectangle2D.Double(0, 0, getWidth(), getHeight(), 16, 16));
+            }
+        });
     }
 
     // ==============================
@@ -892,9 +904,9 @@ public class MainWindow extends JFrame {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-                boolean hover = getModel().isRollover() || getModel().isArmed();
-                if (hover) {
-                    g2.setColor(new Color(70, 70, 74));
+                float glow = UiKit.hoverGlow(this);
+                if (glow > 0.01f) {
+                    g2.setColor(new Color(70, 70, 74, (int) (255 * glow)));
                     g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
                 }
 
@@ -904,7 +916,7 @@ public class MainWindow extends JFrame {
                 int bx = (getWidth() - bw) / 2;
                 int by = (getHeight() - bh) / 2 - 1;
 
-                g2.setColor(hover ? Color.WHITE : new Color(220, 222, 228));
+                g2.setColor(UiKit.blend(new Color(220, 222, 228), Color.WHITE, glow));
                 g2.fillRoundRect(bx, by, bw, bh, 4, 4);
                 g2.fillPolygon(new int[] { bx + 3, bx + 3, bx + 8 },
                         new int[] { by + bh - 1, by + bh + 3, by + bh - 1 }, 3);
@@ -1163,76 +1175,83 @@ public class MainWindow extends JFrame {
 
     // 关闭时把展开动画倒着放一遍：缩回"添加时钟"按钮那里
     void animateDialogClose(final JDialog dialog, JButton anchor) {
-        Rectangle target = null;
-        if (anchor != null && anchor.isShowing()) {
-            try {
-                Point p = anchor.getLocationOnScreen();
-                target = new Rectangle(p.x, p.y, anchor.getWidth(), anchor.getHeight());
-            } catch (Exception ignored) {
-                // 取不到就关闭即
-            }
-        }
-        if (target == null) {
-            dialog.dispose();
-            return;
-        }
-
         final Rectangle from = dialog.getBounds();
-        final Rectangle to = target;
-        final int frames = 5;
-        final Timer[] anim = new Timer[1];
-        final int[] frame = { 0 };
+        final boolean fadeWindow = canFadeFor(dialog) && !isNoFade(dialog);
+        final int slide = 10;
 
-        anim[0] = new Timer(10, e -> {
-            frame[0]++;
-            float p = Math.min(1f, frame[0] / (float) frames);
-            float eased = p * p;      // 倒放：慢起快收
-
-            int x = Math.round(from.x + (to.x - from.x) * eased);
-            int y = Math.round(from.y + (to.y - from.y) * eased);
-            int w = Math.round(from.width + (to.width - from.width) * eased);
-            int h = Math.round(from.height + (to.height - from.height) * eased);
-
-            dialog.setBounds(x, y, Math.max(w, 1), Math.max(h, 1));
-            applyDialogShape(dialog, new Rectangle(0, 0, Math.max(w, 1), Math.max(h, 1)));
-
-            if (frame[0] >= frames) {
-                anim[0].stop();
-                dialog.dispose();
+        UiKit.animate(130, UiKit.Ease.IN_CUBIC, p -> {
+            int y = (int) Math.round(from.y + slide * p);
+            dialog.setLocation(from.x, y);
+            if (fadeWindow) {
+                try {
+                    dialog.setOpacity((float) Math.max(0, 1 - p * 1.2));
+                } catch (Exception ignored) {
+                    // 忽略
+                }
             }
-        });
-        anim[0].setInitialDelay(0);
-        anim[0].start();
+        }, dialog::dispose);
     }
 
     // 从按钮位置"拉出来"的展开动画
     void startOpenAnimation(final JDialog dialog, final Rectangle from, final Rectangle to, int durationMs) {
-        final int frames = 4;
-        final int interval = Math.max(8, durationMs / frames);
-        final Timer[] anim = new Timer[1];
-        final int[] frame = { 0 };
+        // 直接用最终尺寸显示（不缩放窗口，避免内容跟不上出现空白），
+        // 只做"淡入 + 向上轻移"，这是最不容易掉帧的做法
+        dialog.setBounds(to);
+        applyDialogShape(dialog, to);
+        syncContentSize(dialog, to.width, to.height);
 
-        anim[0] = new Timer(interval, e -> {
-            frame[0]++;
-            float p = Math.min(1f, frame[0] / (float) frames);
-            float eased = 1 - (1 - p) * (1 - p);      // 先快后慢
+        final boolean fadeWindow = canFadeFor(dialog);
+        if (fadeWindow) {
+            try {
+                dialog.setOpacity(0f);
+            } catch (Exception ignored) {
+                // 忽略
+            }
+        }
 
-            int x = Math.round(from.x + (to.x - from.x) * eased);
-            int y = Math.round(from.y + (to.y - from.y) * eased);
-            int w = Math.round(from.width + (to.width - from.width) * eased);
-            int h = Math.round(from.height + (to.height - from.height) * eased);
-
-            dialog.setBounds(x, y, w, h);
-            applyDialogShape(dialog, new Rectangle(0, 0, w, h));
-
-            if (frame[0] >= frames) {
-                anim[0].stop();
-                dialog.setBounds(to);
-                applyDialogShape(dialog, to);
+        final int slide = 14;   // 从下方 14px 处滑上来
+        UiKit.animate(durationMs, UiKit.Ease.OUT_CUBIC, p -> {
+            int y = (int) Math.round(to.y + slide * (1 - p));
+            dialog.setLocation(to.x, y);
+            if (fadeWindow) {
+                try {
+                    dialog.setOpacity((float) Math.min(1, p * 1.35));
+                } catch (Exception ignored) {
+                    // 忽略
+                }
+            }
+        }, () -> {
+            dialog.setLocation(to.x, to.y);
+            if (fadeWindow) {
+                try {
+                    dialog.setOpacity(1f);
+                } catch (Exception ignored) {
+                    // 忽略
+                }
             }
         });
-        anim[0].setInitialDelay(0);
-        anim[0].start();
+    }
+
+    // 让内容面板立刻跟着窗口大小走（否则动画进行中新露出来的区域是空的）
+    static void syncContentSize(JDialog dialog, int w, int h) {
+        Container cp = dialog.getContentPane();
+        if (cp == null) {
+            return;
+        }
+        cp.setSize(Math.max(1, w), Math.max(1, h));
+        cp.doLayout();
+        cp.repaint();
+    }
+
+    // 这个窗口要不要跳过透明度动画（有输入框的窗口必须跳过，否则输入法会崩）
+    static boolean isNoFade(JDialog dialog) {
+        return dialog != null && dialog.getRootPane() != null
+                && Boolean.TRUE.equals(dialog.getRootPane().getClientProperty("noFade"));
+    }
+
+    // 这个窗口能不能调透明度
+    static boolean canFadeFor(Window w) {
+        return supportsTranslucency(GraphicsDevice.WindowTranslucency.TRANSLUCENT);
     }
 
     // 按比例朝白色靠近一点（Color.brighter() 会把浅色直接拉成纯白）

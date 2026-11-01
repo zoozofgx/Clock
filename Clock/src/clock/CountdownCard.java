@@ -25,7 +25,8 @@ public class CountdownCard extends JPanel {
         long m = (total % 3600) / 60;
         long s = total % 60;
         if (d > 0) {
-            return d + "天 " + String.format("%02d:%02d:%02d", h, m, s);
+            // 超过一天时显示成 天:时:分:秒（例如 1:01:53:59），比"1天 01:53:59"更紧凑，不会被截断
+            return d + ":" + String.format("%02d:%02d:%02d", h, m, s);
         }
         return String.format("%02d:%02d:%02d", h, m, s);
     }
@@ -109,6 +110,46 @@ public class CountdownCard extends JPanel {
         private long remainingMillis;
         private boolean paused;
         boolean finished;
+        private float alpha = 1f;          // 用于淡入淡出
+        private float hoverGlow = 0f;      // 悬停时的高亮强度
+        private javax.swing.Timer hoverTimer;
+
+        // 给卡片和它的所有子组件都挂上悬停监听
+        private void installHover(Component c) {
+            c.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mouseEntered(java.awt.event.MouseEvent e) {
+                    animateHover(1f);
+                }
+
+                @Override
+                public void mouseExited(java.awt.event.MouseEvent e) {
+                    java.awt.Point p = javax.swing.SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), CountdownCard.this);
+                    if (!CountdownCard.this.contains(p)) {
+                        animateHover(0f);
+                    }
+                }
+            });
+            if (c instanceof Container) {
+                for (Component k : ((Container) c).getComponents()) {
+                    installHover(k);
+                }
+            }
+        }
+
+        void setAlpha(float a) {
+            alpha = Math.max(0f, Math.min(1f, a));
+            repaint();
+        }
+
+        private void animateHover(float target) {
+            final float start = hoverGlow;
+            UiKit.animate(180, UiKit.Ease.OUT_CUBIC,
+                    p -> {
+                        hoverGlow = (float) (start + (target - start) * p);
+                        repaint();
+                    }, null);
+        }
 
         CountdownCard(long totalMillis, String name, Listener listener) {
             this.listener = listener;
@@ -120,6 +161,19 @@ public class CountdownCard extends JPanel {
             setLayout(new GridBagLayout());   // 三个元素都按行垂直居中
             setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 12));
             setAlignmentX(LEFT_ALIGNMENT);
+            setOpaque(false);
+            addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mouseEntered(java.awt.event.MouseEvent e) {
+                    animateHover(1f);
+                }
+
+                @Override
+                public void mouseExited(java.awt.event.MouseEvent e) {
+                    animateHover(0f);
+                }
+            });
+            installHover(this);
             setMaximumSize(new Dimension(Integer.MAX_VALUE, 66));
             setPreferredSize(new Dimension(100, 66));
 
@@ -183,9 +237,11 @@ public class CountdownCard extends JPanel {
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(new Color(38, 38, 42));
+            int a = (int) (255 * alpha);
+            int base = 38 + (int) (16 * hoverGlow);          // 悬停时整体提亮一点
+            g2.setColor(new Color(base, base, base + 4, Math.min(255, a)));
             g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
-            g2.setColor(new Color(70, 70, 78));
+            g2.setColor(new Color(70, 70, 78, Math.min(255, a)));
             g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 12, 12);
             g2.dispose();
             super.paintComponent(g);

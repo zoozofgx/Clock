@@ -124,6 +124,10 @@ public final class SettingsDialog {
         dialog.setSize(w, h);
         dialog.setLocationRelativeTo(owner);
 
+        dialog.setSize(w, h);
+        UiKit.prepareUndecorated(dialog);
+        UiKit.disableShape(dialog);
+
         final Rectangle to = dialog.getBounds();
         Rectangle from = to;
         if (owner.settingsButton != null && owner.settingsButton.isShowing()) {
@@ -134,6 +138,8 @@ public final class SettingsDialog {
                 // 取不到坐标就直接出现在最终位置
             }
         }
+
+        dialog.validate();
 
         dialog.setBounds(from);
         UiKit.applyDialogShape(dialog, from);
@@ -150,7 +156,7 @@ public final class SettingsDialog {
         });
 
         owner.showGlassOverlay();
-        owner.startOpenAnimation(dialog, from, to, 100);
+        owner.startOpenAnimation(dialog, from, to, 200);
         dialog.setVisible(true);
     }
 
@@ -235,30 +241,21 @@ public final class SettingsDialog {
 
         soundPopup = popup;
 
-        // 展开动画：从 8px 高"拉"到完整高度
-        final int frames = 5;
-        final Timer[] anim = new Timer[1];
-        final int[] frame = { 0 };
-
+        // 展开动画：从 8px 平滑拉到完整高度（60fps）
         popup.setBounds(sx, sy, width, 8);
         UiKit.applyPopupShape(popup, width, 8);
         popup.setVisible(true);
         popup.requestFocus();
 
-        anim[0] = new Timer(10, e -> {
-            frame[0]++;
-            float p = Math.min(1f, frame[0] / (float) frames);
-            float eased = 1 - (1 - p) * (1 - p);
-            int h = Math.max(8, Math.round(8 + (height - 8) * eased));
+        final int startH = 8;
+        final int endH = height;
+        UiKit.animate(180, UiKit.Ease.OUT_QUINT, p -> {
+            int h = Math.max(8, (int) Math.round(startH + (endH - startH) * p));
             popup.setBounds(sx, sy, width, h);
             UiKit.applyPopupShape(popup, width, h);
-            if (frame[0] >= frames) {
-                anim[0].stop();
-                popup.setBounds(sx, sy, width, height);
-                UiKit.applyPopupShape(popup, width, height);
-            }
+        }, () -> {
+            popup.setBounds(sx, sy, width, endH);
+            UiKit.applyPopupShape(popup, width, endH);
         });
-        anim[0].setInitialDelay(0);
-        anim[0].start();
     }
 }

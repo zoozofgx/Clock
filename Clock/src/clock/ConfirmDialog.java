@@ -65,6 +65,9 @@ public final class ConfirmDialog {
         panel.add(okBtn);
 
         dialog.setContentPane(panel);
+        // 透明背景：否则圆角面板外面会露出窗口默认的白底（就是那条白边）
+        UiKit.prepareUndecorated(dialog);
+        UiKit.disableShape(dialog);
         dialog.setSize(w, h);
         if (owner.isShowing()) {
             dialog.setLocationRelativeTo(owner);
@@ -76,9 +79,11 @@ public final class ConfirmDialog {
         final Rectangle from = new Rectangle(
                 to.x + to.width / 2 - 30, to.y + to.height / 2 - 15, 60, 30);
 
+        dialog.validate();
+
         dialog.setBounds(from);
         UiKit.applyDialogShape(dialog, from);
         dialog.setVisible(true);
-        owner.startOpenAnimation(dialog, from, to, 100);
+        owner.startOpenAnimation(dialog, from, to, 200);
     }
 }
