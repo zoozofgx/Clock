@@ -105,8 +105,4 @@ Clock/
 
 ## 更新日志
 
-### V0.0.2
-- 新增「关于作者」窗口（GitHub / 哔哩哔哩 / QQ 群）
-- 设置改为保存到 exe 旁边的 `config/settings.ini`
-- 打包为单文件 exe，首次运行自动解压
-- 修复：启动时窗口闪一下、蒙版互相覆盖、弹窗层级问题
+历次版本改动详见 [CHANGELOG.md](CHANGELOG.md)。
