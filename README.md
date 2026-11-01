@@ -1,5 +1,7 @@
 # Clock 时钟
 
+![主界面](screenshot.png)
+
 一个自己写的 Windows 桌面倒计时小工具。免费、开源、单文件免安装。
 
 ![版本](https://img.shields.io/badge/version-V0.0.2-blue)
